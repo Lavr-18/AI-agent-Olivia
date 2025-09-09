@@ -1,0 +1,12 @@
+asyncio
+pandas
+requests
+websocket-client
+openai
+aiogram
+pillow
+numpy
+openpyxl
+xlsxwriter
+python-dotenv 
+openai-agents
