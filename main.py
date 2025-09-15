@@ -19,7 +19,7 @@ import config
 
 # Подтягиваем класс ChatContext и функцию run_unified_agent (вместо старой)
 from chat_context import ChatContext, DialogState, PERSONA_DESCRIPTION, ADDRESS_INFO, RESPONSE_FORMAT_INSTRUCTIONS
-from bot_agent import run_unified_agent # Импортируем новую функцию из bot_agent.py
+from bot_agent import run_unified_agent  # Импортируем новую функцию из bot_agent.py
 
 # Функции для работы с растениями (RAG, векторный поиск и т.п.)
 import plant_utils
@@ -56,7 +56,7 @@ RETAILCRM_BASE_URL = config.RETAILCRM_BASE_URL
 RETAILCRM_STORE_CODE = "tropichouse"
 
 MODEL_NAME = "gpt-4.1-mini"
-VISION_MODEL = "gpt-4o"        # условное название модели, если используете аналоги Vision
+VISION_MODEL = "gpt-4o"  # условное название модели, если используете аналоги Vision
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 MAX_RECONNECT_ATTEMPTS = 10
@@ -69,6 +69,7 @@ main_event_loop = None
 
 # Инициализируем OpenAI-клиент (асинхронный)
 from openai import AsyncOpenAI
+
 openai_client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
 
 # Храним ChatContext для каждого chat_id
@@ -95,11 +96,11 @@ def cleanup_expired_contexts():
         for chat_id, context in chat_contexts.items():
             if context.is_expired():
                 expired_chats.append(chat_id)
-        
+
         for chat_id in expired_chats:
             del chat_contexts[chat_id]
             logger.info(f"[cleanup_expired_contexts] Удален устаревший контекст для chat {chat_id}")
-        
+
         if expired_chats:
             logger.info(f"[cleanup_expired_contexts] Очищено {len(expired_chats)} устаревших контекстов")
 
@@ -110,6 +111,7 @@ def cleanup_expired_contexts():
 
 async def async_get(url, **kwargs):
     return await asyncio.to_thread(requests.get, url, **kwargs)
+
 
 async def async_post(url, **kwargs):
     return await asyncio.to_thread(requests.post, url, **kwargs)
@@ -156,14 +158,17 @@ async def handle_client_message(chat_id: str, message_text: str):
         # run_unified_agent теперь сам обрабатывает диалог и возвращает готовый текст ответа
         bot_reply = await run_unified_agent(context, message_text, openai_client)
 
-        # Мы отправляем сообщение только если bot_reply не пустой (т.е. '')
-        # Это позволяет игнорировать сообщения, которые должен обрабатывать другой бот
-        if bot_reply:
-            await send_message(chat_id, bot_reply)
+        # Проверяем, что bot_reply не None перед отправкой
+        if bot_reply is None:
+            logger.error(f"[handle_client_message] bot_reply=None для chat {chat_id}")
+            bot_reply = "Извините, произошла техническая ошибка. Пожалуйста, повторите запрос."
 
+        # Отправляем готовый ответ клиенту
+        await send_message(chat_id, bot_reply)
     except Exception as e:
         logger.error(f"[handle_client_message] Ошибка при обработке сообщения для chat {chat_id}: {e}", exc_info=True)
-        await send_message(chat_id, "Извините, произошла ошибка при обработке вашего запроса. Пожалуйста, повторите или введите /start для перезапуска диалога.")
+        await send_message(chat_id,
+                           "Извините, произошла ошибка при обработке вашего запроса. Пожалуйста, повторите или введите /start для перезапуска диалога.")
 
 
 async def handle_client_image(chat_id: str, image_url: str):
@@ -180,7 +185,7 @@ async def handle_client_image(chat_id: str, image_url: str):
         if chat_contexts[chat_id].is_expired():
             logger.info(f"[handle_client_image] Контекст для chat {chat_id} истек, создаем новый")
             chat_contexts[chat_id] = ChatContext(chat_id)
-    
+
     context = chat_contexts[chat_id]
 
     try:
@@ -189,35 +194,38 @@ async def handle_client_image(chat_id: str, image_url: str):
             logger.error(f"[handle_client_image] Получен пустой image_url для chat {chat_id}")
             await send_message(chat_id, "Извините, не удалось получить изображение. Попробуйте отправить его снова.")
             return
-            
+
         logger.info(f"[handle_client_image] Получено изображение для chat {chat_id}: {image_url}")
         resp = await async_get(image_url)
         if resp is None:
             logger.error(f"[handle_client_image] async_get вернул None для {image_url}")
             await send_message(chat_id, "Извините, не удалось загрузить фотографию. Попробуйте отправить её снова.")
             return
-            
+
         if resp.status_code != 200:
             logger.error(f"[handle_client_image] Не удалось получить картинку: {resp.status_code}")
-            await send_message(chat_id, "Извините, что-то пошло не так при загрузке фотографии. Не могли бы вы отправить её ещё раз? Если проблема повторится, попробуйте сделать новое фото.")
+            await send_message(chat_id,
+                               "Извините, что-то пошло не так при загрузке фотографии. Не могли бы вы отправить её ещё раз? Если проблема повторится, попробуйте сделать новое фото.")
             return
 
         # Проверка, что resp.content не None
         if not resp.content:
             logger.error(f"[handle_client_image] Пустой resp.content для {image_url}")
-            await send_message(chat_id, "Извините, полученное изображение оказалось пустым. Не могли бы вы отправить его ещё раз?")
+            await send_message(chat_id,
+                               "Извините, полученное изображение оказалось пустым. Не могли бы вы отправить его ещё раз?")
             return
-            
+
         image_bytes = resp.content
         # Анализируем фото
         result = await analyze_image(image_bytes)
-        
+
         # Проверка, что result не None
         if result is None:
             logger.error(f"[handle_client_image] analyze_image вернул None для chat {chat_id}")
-            await send_message(chat_id, "Извините, не удалось проанализировать изображение. Попробуйте отправить другое фото.")
+            await send_message(chat_id,
+                               "Извините, не удалось проанализировать изображение. Попробуйте отправить другое фото.")
             return
-        
+
         # Формируем сообщение для агента на основе анализа
         if result.get("is_plant"):
             plant_name = result.get("plant_name", "Неизвестное растение")
@@ -236,20 +244,24 @@ async def handle_client_image(chat_id: str, image_url: str):
         # Передаём внутреннее сообщение в единый агент
         try:
             bot_reply = await run_unified_agent(context, internal_message, openai_client)
-            
+
             if bot_reply is None:
                 logger.error(f"[handle_client_image] bot_reply=None после обработки фото для chat {chat_id}")
                 bot_reply = "Извините, произошла техническая ошибка после анализа фото. Пожалуйста, повторите запрос."
-                
+
             await send_message(chat_id, bot_reply)
         except Exception as agent_e:
-            logger.error(f"[handle_client_image] Ошибка при вызове run_unified_agent для chat {chat_id} после фото: {agent_e}", exc_info=True)
-            await send_message(chat_id, "Извините, произошла ошибка при обработке вашего фото. Пожалуйста, попробуйте еще раз.")
+            logger.error(
+                f"[handle_client_image] Ошибка при вызове run_unified_agent для chat {chat_id} после фото: {agent_e}",
+                exc_info=True)
+            await send_message(chat_id,
+                               "Извините, произошла ошибка при обработке вашего фото. Пожалуйста, попробуйте еще раз.")
 
     except Exception as e:
         # Логируем основную ошибку handle_client_image
         logger.error(f"[handle_client_image] Глобальная ошибка для chat {chat_id}: {e}", exc_info=True)
-        await send_message(chat_id, "Прошу прощения, возникли технические сложности при обработке фото. Попробуйте отправить его ещё раз.")
+        await send_message(chat_id,
+                           "Прошу прощения, возникли технические сложности при обработке фото. Попробуйте отправить его ещё раз.")
 
 
 async def analyze_image(image_content: bytes) -> dict:
@@ -333,29 +345,30 @@ async def analyze_image(image_content: bytes) -> dict:
                 cleaned_answer = cleaned_answer[3:]
             if cleaned_answer.endswith("```"):
                 cleaned_answer = cleaned_answer[:-3]
-            
+
             cleaned_answer = cleaned_answer.strip()
             result = json.loads(cleaned_answer)
-            
+
             # Проверяем и дополняем обязательные поля
             if not isinstance(result.get("is_plant"), bool):
                 logger.warning("[analyze_image] Некорректный формат is_plant в ответе модели")
                 result["is_plant"] = False
-                
+
             if not result.get("plant_name"):
                 result["plant_name"] = "Неизвестное растение"
-                
+
             if not result.get("description"):
                 result["description"] = "Нет описания"
-                
+
             if not isinstance(result.get("confidence"), (int, float)):
                 result["confidence"] = 0.0
-                
+
             if result.get("is_plant") and not result.get("care_tips"):
-                result["care_tips"] = "Общие рекомендации: умеренный полив, хорошее освещение без прямых солнечных лучей"
-                
+                result[
+                    "care_tips"] = "Общие рекомендации: умеренный полив, хорошее освещение без прямых солнечных лучей"
+
             return result
-            
+
         except json.JSONDecodeError as e:
             logger.error(f"[analyze_image] Ошибка парсинга JSON: {e}\nОтвет модели:\n{raw_answer}")
             # Пытаемся извлечь информацию из текстового ответа
@@ -389,12 +402,12 @@ async def send_message(chat_id: str, message: str):
     if message is None:
         logger.error(f"[send_message] Ошибка: message=None для chat_id={chat_id}")
         message = "Извините, произошла техническая ошибка. Пожалуйста, повторите запрос или напишите /start для перезапуска диалога."
-    
+
     # Проверяем, что сообщение не пустое
     if not message or not message.strip():
         logger.info(f"[send_message] Пустое сообщение для chat_id={chat_id}, пропускаем отправку")
         return
-    
+
     url = f"{API_URL}/messages"
     data = {
         "chat_id": int(chat_id),
@@ -406,13 +419,13 @@ async def send_message(chat_id: str, message: str):
         # Используем безопасное логирование
         log_msg = message[:50] if message else "None"
         logger.info(f"[send_message] -> chat {chat_id}: {log_msg}")
-        
+
         # Отправляем JSON без экранирования кириллицы
         resp = await async_post(url, headers=HEADERS, data=json.dumps(data, ensure_ascii=False).encode('utf-8'))
         if resp is None:
             logger.error("[send_message] Ошибка: async_post вернул None")
             return
-            
+
         if resp.status_code not in (200, 201):
             logger.error(f"[send_message] Ошибка: {resp.status_code}, {resp.text}")
         else:
@@ -443,14 +456,14 @@ def dialog_assigned(dialog_id: int) -> bool:
         url = f"{API_URL}/dialogs"
         params = {"id": dialog_id}
         resp = requests.get(url, headers=HEADERS, params=params, timeout=10)
-        
+
         if resp.status_code == 404:
             logger.info(f"[dialog_assigned] Чат {dialog_id} не найден, считаем неназначенным")
             return False
-            
+
         resp.raise_for_status()
         data = resp.json()
-        
+
         # API может возвращать список или словарь
         if isinstance(data, list):
             # Если список, ищем диалог с нужным ID
@@ -465,7 +478,7 @@ def dialog_assigned(dialog_id: int) -> bool:
         else:
             logger.warning(f"[dialog_assigned] Неожиданный тип данных от API: {type(data)}")
             return False
-        
+
     except Exception as e:
         logger.error(f"[dialog_assigned] Ошибка при проверке диалога {dialog_id}: {e}")
         # В случае ошибки считаем диалог неназначенным, чтобы бот мог отвечать
@@ -483,7 +496,7 @@ def on_message(ws, message):
         if data.get("type") == "message_new":
             message_data = data.get("data", {}).get("message", {})
             chat_id = message_data.get("chat_id")
-            dialog_id = message_data.get("dialog",{}).get("id")
+            dialog_id = message_data.get("dialog", {}).get("id")
             if not chat_id:
                 logger.warning("[on_message] Нет chat_id, пропускаем")
                 return
@@ -498,7 +511,7 @@ def on_message(ws, message):
                 is_target_channel = (int(channel_id) == 18 or int(channel_id) == 13) if channel_id else False
             except (ValueError, TypeError):
                 is_target_channel = False
-                
+
             if not is_target_channel:
                 logger.info(f"[on_message] Сообщение из другого канала ({channel_name}), игнорируем")
                 return
@@ -516,37 +529,39 @@ def on_message(ws, message):
                     # Создаем или обновляем контекст чата
                     if chat_id not in chat_contexts:
                         chat_contexts[chat_id] = ChatContext(chat_id)
-                    
+
                     context = chat_contexts[chat_id]
                     context.dialog_id = dialog_id
                     context.change_state(DialogState.MANAGER_CALLED)
                     return
-                
+
                 # Создаем или обновляем контекст чата
                 if chat_id not in chat_contexts:
                     chat_contexts[chat_id] = ChatContext(chat_id)
-                
+
                 context = chat_contexts[chat_id]
-                context.dialog_id = dialog_id # Устанавливаем dialog_id в контексте
-                
+                context.dialog_id = dialog_id  # Устанавливаем dialog_id в контексте
+
                 # Сохраняем информацию о канале
                 context.channel_info = {
                     "id": channel_id,
                     "name": channel_name
                 }
-                
+
                 # Сохраняем информацию о пользователе
                 context.user_info = {
                     "id": from_data.get("id"),
                     "name": from_data.get("name", "Неизвестный пользователь")
                 }
-                
+
                 if incoming_type == "text":
-                    message_text = content.get("text") if isinstance(content, dict) else str(content) if content else None
+                    message_text = content.get("text") if isinstance(content, dict) else str(
+                        content) if content else None
                     if message_text and message_text.strip():
                         logger.info(f"[on_message] Текст от клиента: {message_text}")
                         if main_event_loop:
-                            asyncio.run_coroutine_threadsafe(message_queue.put((chat_id, message_text)), main_event_loop)
+                            asyncio.run_coroutine_threadsafe(message_queue.put((chat_id, message_text)),
+                                                             main_event_loop)
                     else:
                         logger.warning(f"[on_message] Получено пустое текстовое сообщение для chat {chat_id}")
                 elif incoming_type == "image":
@@ -557,23 +572,25 @@ def on_message(ws, message):
                             img_url = first_item.get("preview_url")
                             if img_url and main_event_loop:
                                 logger.info(f"[on_message] Изображение от клиента: {img_url}")
-                                asyncio.run_coroutine_threadsafe(message_queue.put((chat_id, None, img_url)), main_event_loop)
+                                asyncio.run_coroutine_threadsafe(message_queue.put((chat_id, None, img_url)),
+                                                                 main_event_loop)
             elif sender_type in ["manager", "user"]:
                 # Сообщения от менеджеров - переводим диалог в режим MANAGER_CALLED
                 logger.info(f"[on_message] Сообщение от менеджера ({sender_type}), переводим в режим MANAGER_CALLED")
-                
+
                 # Создаем или обновляем контекст чата
                 if chat_id not in chat_contexts:
                     chat_contexts[chat_id] = ChatContext(chat_id)
-                
+
                 context = chat_contexts[chat_id]
                 context.dialog_id = dialog_id
-                
+
                 # Переводим в состояние MANAGER_CALLED
                 context.change_state(DialogState.MANAGER_CALLED)
             else:
                 # Неизвестный тип отправителя - логируем и игнорируем
-                logger.warning(f"[on_message] Неизвестный тип отправителя: {sender_type}, игнорируем сообщение для chat {chat_id}")
+                logger.warning(
+                    f"[on_message] Неизвестный тип отправителя: {sender_type}, игнорируем сообщение для chat {chat_id}")
 
     except json.JSONDecodeError:
         logger.error(f"[on_message] JSONDecodeError: {message}")
@@ -603,7 +620,7 @@ def on_open(ws):
 
 def create_websocket():
     """
-    Создаёт WebSocketApp для RetailCRM и возвращает его. 
+    Создаёт WebSocketApp для RetailCRM и возвращает его.
     """
     ws_url = f"{API_URL.replace('https://', 'wss://')}/ws?events=message_new"
     ws = websocket.WebSocketApp(
@@ -680,39 +697,40 @@ async def process_user_messages(chat_id: str):
         # Ждем указанное время
         logger.info(f"[process_user_messages] Ожидание {MESSAGE_DELAY} секунд для chat_id {chat_id}")
         await asyncio.sleep(MESSAGE_DELAY)
-        
+
         # Получаем все сообщения пользователя
         messages = user_messages.get(chat_id, [])
         if not messages:
             logger.info(f"[process_user_messages] Нет сообщений для chat_id {chat_id}")
             return
-            
+
         logger.info(f"[process_user_messages] Обработка {len(messages)} сообщений для chat_id {chat_id}")
-        
+
         # Очищаем сообщения пользователя
         user_messages[chat_id] = []
-        
+
         # Разделяем сообщения на текстовые и изображения
         text_messages = []
         image_messages = []
-        
+
         for text, image_url in messages:
             if image_url:
                 image_messages.append(image_url)
             elif text:
                 text_messages.append(text)
-        
+
         # Обрабатываем изображения
         for image_url in image_messages:
             logger.info(f"[process_user_messages] Обработка изображения для chat_id {chat_id}: {image_url}")
             await handle_client_image(chat_id, image_url)
-        
+
         # Объединяем текстовые сообщения и обрабатываем их
         if text_messages:
             combined_text = "\n".join(text_messages)
-            logger.info(f"[process_user_messages] Обработка {len(text_messages)} текстовых сообщений для chat_id {chat_id}")
+            logger.info(
+                f"[process_user_messages] Обработка {len(text_messages)} текстовых сообщений для chat_id {chat_id}")
             await handle_client_message(chat_id, combined_text)
-                
+
     except Exception as e:
         logger.error(f"[process_user_messages] Ошибка: {e}")
     finally:
@@ -731,11 +749,11 @@ async def process_messages():
         item = await message_queue.get()
         try:
             chat_id = item[0]
-            
+
             # Инициализируем список сообщений для пользователя, если его нет
             if chat_id not in user_messages:
                 user_messages[chat_id] = []
-            
+
             # Добавляем сообщение в список
             if len(item) == 2:
                 text = item[1]
@@ -745,15 +763,17 @@ async def process_messages():
                 image_url = item[2]
                 user_messages[chat_id].append((None, image_url))
                 logger.info(f"[process_messages] Добавлено изображение для chat_id {chat_id}: {image_url}")
-            
+
             # Если у пользователя уже есть активный таймер, не создаем новый
             if chat_id not in user_timers:
                 # Создаем новую задачу для обработки сообщений
                 user_timers[chat_id] = asyncio.create_task(process_user_messages(chat_id))
-                logger.info(f"[process_messages] Запущен таймер для chat_id {chat_id}, сообщений: {len(user_messages[chat_id])}")
+                logger.info(
+                    f"[process_messages] Запущен таймер для chat_id {chat_id}, сообщений: {len(user_messages[chat_id])}")
             else:
-                logger.info(f"[process_messages] Обновлен таймер для chat_id {chat_id}, сообщений: {len(user_messages[chat_id])}")
-            
+                logger.info(
+                    f"[process_messages] Обновлен таймер для chat_id {chat_id}, сообщений: {len(user_messages[chat_id])}")
+
             message_queue.task_done()
         except Exception as e:
             logger.error(f"[process_messages] Ошибка: {e}")
@@ -778,7 +798,7 @@ async def start_bot():
     retry_attempts = 3
     for attempt in range(retry_attempts):
         try:
-            logger.info(f"[start_bot] Инициализация данных #{attempt+1}...")
+            logger.info(f"[start_bot] Инициализация данных #{attempt + 1}...")
             ok = await plant_utils.initialize_data(openai_client)
             if not ok:
                 logger.warning("Данные не проинициализировались, пробуем update_plant_data...")
@@ -809,7 +829,7 @@ async def start_bot():
         while True:
             await asyncio.sleep(21600)  # 6 часов
             cleanup_expired_contexts()
-    
+
     asyncio.create_task(periodic_cleanup())
 
     # Периодически обновляем данные о растениях (например, раз в час)

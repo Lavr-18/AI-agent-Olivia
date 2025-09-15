@@ -7,7 +7,6 @@ import requests
 from datetime import datetime
 import json
 import time
-import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +16,9 @@ try:
 except Exception as e:
     logger.error(f"Не удалось инициализировать Телеграм-бот: {e}")
 
+# ID чата продавца в Telegram
+SELLER_CHAT_ID = -1002540034535
 
-# SELLER_CHAT_ID = -1002540034535 # Эту строку можно удалить, так как теперь используются переменные из config
 
 def api_request(method, endpoint, params=None, json_data=None, headers=None):
     """Универсальная функция для запросов к API"""
@@ -369,13 +369,12 @@ async def notify_seller(order_details: str, is_preorder: bool, context=None) -> 
 
         # Отправляем сообщение
         await bot.send_message(
-            chat_id=config.TELEGRAM_CHAT_ID,
+            chat_id=SELLER_CHAT_ID,
             text=message,
-            parse_mode="HTML",
-            message_thread_id=config.TELEGRAM_TOPIC_ID
+            parse_mode="HTML"
         )
 
-        logger.info(f"[notify_seller] Уведомление успешно отправлено продавцу (chat_id: {config.TELEGRAM_CHAT_ID})")
+        logger.info(f"[notify_seller] Уведомление успешно отправлено продавцу (chat_id: {SELLER_CHAT_ID})")
 
         # Возвращаем подтверждение в зависимости от типа заказа
         if is_preorder:
@@ -389,27 +388,3 @@ async def notify_seller(order_details: str, is_preorder: bool, context=None) -> 
         logger.error(f"[notify_seller] Ошибка при отправке уведомления продавцу: {e}")
         error_message = "К сожалению, при оформлении заказа произошла ошибка. 😥 Пожалуйста, попробуйте еще раз или свяжитесь с нами напрямую."
         return {"status": "error", "error_message": error_message}
-
-
-# --- Тестовый модуль ---
-async def main():
-    """Основная асинхронная функция для тестового запуска."""
-
-    test_message = "🚀 **Тестовое сообщение от бота!**\n\n"
-    test_message += "Проверка отправки в супергруппу с темой.\n"
-    test_message += "Если вы видите это сообщение, значит, настройка прошла успешно! ✨"
-
-    try:
-        print(
-            f"Попытка отправить тестовое сообщение в чат {config.TELEGRAM_CHAT_ID}, тему {config.TELEGRAM_TOPIC_ID}...")
-        await bot.send_message(
-            chat_id=config.TELEGRAM_CHAT_ID,
-            message_thread_id=config.TELEGRAM_TOPIC_ID,
-            text=test_message,
-            parse_mode=ParseMode.HTML
-        )
-        print("Сообщение успешно отправлено!")
-
-    except Exception as e:
-        print(f"Ошибка при отправке тестового сообщения: {e}")
-

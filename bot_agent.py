@@ -19,7 +19,7 @@ CATEGORY_REPLIES = {
     "call_request": "Понял, сейчас попрошу менеджера связаться с вами по телефону 📞",
     "reclamation": "Я передам ваш вопрос нашему менеджеру по рекламациям 🙏 Подождите, пожалуйста.",
     "ask_human": "Конечно, я позову менеджера, который поможет лично 🤝 Подождите чуть-чуть!",
-    #"delivery": "Сейчас свяжусь с менеджером по доставке 🚚 Немного подождите, пожалуйста.",
+    # "delivery": "Сейчас свяжусь с менеджером по доставке 🚚 Немного подождите, пожалуйста.",
     "office_plant": "Зову нашего эксперта по озеленению офисов 🌿 Он скоро свяжется с вами.",
 }
 
@@ -31,7 +31,7 @@ DETAILS_PREFIX = {
     "call_request": "Пользователь просит позвонить",
     "reclamation": "Рекламация",
     "ask_human": "Пользователь просит связать с менеджером",
-    #"delivery": "Вопрос по доставке",
+    # "delivery": "Вопрос по доставке",
     "office_plant": "Пользователь интересуется растениями для офиса",
 }
 
@@ -39,7 +39,7 @@ DETAILS_PREFIX = {
 PLANT_POT_SIZE_MAPPING = {
     # Диаметр горшка у растения -> диаметр кашпо, которое подбираем
     9: (10, 12),
-    10: (10, 12), 
+    10: (10, 12),
     11: (12, 15),
     12: (12, 15),
     13: (15, 18),
@@ -85,15 +85,16 @@ PLANT_POT_SIZE_MAPPING = {
     53: (60, 70)
 }
 
+
 def extract_plant_diameter(plant_name: str) -> int | None:
     """Извлекает диаметр горшка из названия растения"""
     # Ищем паттерны типа "12/45 см", "d17 см", "21/110 см"
     patterns = [
         r'(\d+)/\d+\s*см',  # "12/45 см" - берем первое число
-        r'd(\d+)\s*см',     # "d17 см" - берем число после d
-        r'(\d+)\s*см',      # "21 см" - просто число с см
+        r'd(\d+)\s*см',  # "d17 см" - берем число после d
+        r'(\d+)\s*см',  # "21 см" - просто число с см
     ]
-    
+
     for pattern in patterns:
         match = re.search(pattern, plant_name)
         if match:
@@ -101,47 +102,49 @@ def extract_plant_diameter(plant_name: str) -> int | None:
             # Проверяем, что диаметр в разумных пределах (5-60 см)
             if 5 <= diameter <= 60:
                 return diameter
-    
+
     return None
+
 
 def generate_pot_link(plant_diameter: int) -> str:
     """Генерирует ссылку на подходящие горшки по размеру растения"""
     if plant_diameter not in PLANT_POT_SIZE_MAPPING:
         # Если точного соответствия нет, используем ближайший размер
-        closest_diameter = min(PLANT_POT_SIZE_MAPPING.keys(), 
-                             key=lambda x: abs(x - plant_diameter))
+        closest_diameter = min(PLANT_POT_SIZE_MAPPING.keys(),
+                               key=lambda x: abs(x - plant_diameter))
         pot_range = PLANT_POT_SIZE_MAPPING[closest_diameter]
     else:
         pot_range = PLANT_POT_SIZE_MAPPING[plant_diameter]
-    
+
     min_diameter, max_diameter = pot_range
-    
+
     # Формируем ссылку с нужными параметрами
     base_url = "https://tropichouse.ru/catalog/gorshki_i_kashpo/filter"
     link = f"{base_url}/diameter-from-{min_diameter}-to-{max_diameter}/apply/"
-    
+
     return link
+
 
 async def check_and_send_pot_suggestion(chat_id: str, selected_plants: list):
     """Проверяет растения в техническом горшке и отправляет предложение купить кашпо"""
     from main import send_message
-    
+
     tech_pot_plants = []
-    
+
     # Проверяем каждое выбранное растение
     for plant in selected_plants:
         pot_info = plant.get("Кашпо/Горшок", "")
         if "в техническом горшке" in pot_info:
             tech_pot_plants.append(plant)
-    
+
     if not tech_pot_plants:
         return  # Нет растений в технических горшках
-    
+
     # Формируем сообщение для каждого растения в техническом горшке
     for plant in tech_pot_plants:
         plant_name = plant.get("Название", "растение")
         diameter = extract_plant_diameter(plant_name)
-        
+
         if diameter:
             pot_link = generate_pot_link(diameter)
             message = f"""🪴 Кстати! Ваше растение "{plant_name}" поставляется в техническом горшке. 
@@ -158,36 +161,11 @@ async def check_and_send_pot_suggestion(chat_id: str, selected_plants: list):
 https://tropichouse.ru/catalog/gorshki_i_kashpo/
 
 Это не только украсит интерьер, но и обеспечит растению лучшие условия! 🌿✨"""
-        
+
         await send_message(chat_id, message)
 
+
 async def classify_intent(ctx: RunContextWrapper[ChatContext] | ChatContext, text: str) -> str:
-    """
-        Classifies a client message into a predefined intent.
-        """
-    review_request_text = (
-        "Ваш заказ доставлен 🏡\n"
-        "Благодарим за покупку в TropicHouse! 🌿\n\n"
-        "Ваш выбор — лучшая награда для нашей команды. Мы постоянно совершенствуем сервис и хотим, чтобы вам было приятно возвращаться🌴\n\n"
-        "Пожалуйста, оцените наш сервис по 5-балльной шкале:\n"
-        "5 — 😍 всё отлично\n"
-        "3 — 😐 есть, что улучшить\n"
-        "1 — 😞 остались недовольны"
-    )
-
-    # Проверка на прямое совпадение с текстом запроса на отзыв
-    if text.strip() == review_request_text.strip():
-        logger.info("Ignoring fixed review request message from another bot.")
-        return "review_ignore"
-
-    # Проверка на ответ клиента на запрос отзыва (число от 1 до 5)
-    last_message = context.get_last_message()
-    if last_message and last_message.get('text', '').strip() == review_request_text.strip():
-        if text.strip() in ['1', '3', '5', '1 - 3', '5 - отлично', '5 — всё отлично', '3 — есть, что улучшить',
-                            '1 — остались недовольны']:
-            logger.info("Ignoring client's response to a review request.")
-            return "review_ignore"
-
     """Классифицирует запрос пользователя для выделения случаев, требующих уведомления менеджера."""
     client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
     system_prompt = """
@@ -229,12 +207,13 @@ async def classify_intent(ctx: RunContextWrapper[ChatContext] | ChatContext, tex
         return "none"
     return category
 
+
 # Динамические инструкции с учётом состояния диалога
 
 def _make_instructions(ctx: RunContextWrapper[ChatContext] | ChatContext, agent: Agent[ChatContext]) -> str:
     # Получаем базовые инструкции
     instructions = f"{PERSONA_DESCRIPTION}\n{ADDRESS_INFO}\n{RESPONSE_FORMAT_INSTRUCTIONS}"
-    
+
     # Проверяем тип объекта и получаем state
     if isinstance(ctx, RunContextWrapper):
         state = ctx.context.state
@@ -242,12 +221,12 @@ def _make_instructions(ctx: RunContextWrapper[ChatContext] | ChatContext, agent:
     else:
         state = ctx.state
         cart = ctx.cart
-    
+
     # Добавляем информацию о корзине, если в ней есть товары
     if cart:
         cart_info = f"\n## Текущая корзина:\n{ctx.context.get_cart_summary() if isinstance(ctx, RunContextWrapper) else ctx.get_cart_summary()}"
         instructions += cart_info
-    
+
     # Добавляем контекстно-зависимые инструкции
     if state == DialogState.START:
         instructions += """
@@ -289,118 +268,127 @@ def _make_instructions(ctx: RunContextWrapper[ChatContext] | ChatContext, agent:
 """
     elif state == DialogState.UPSELL:
         instructions += "\n## Текущее состояние: Предложение дополнительных товаров\nПредложи полезные аксессуары для ухода за растением. Используй функцию suggest_accessories."
-    
+
     return instructions
+
 
 @function_tool
 async def search(ctx: RunContextWrapper[ChatContext], query: str) -> str:
     """Ищет растения в базе данных по запросу пользователя."""
     client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
-    
+
     # Результаты векторного поиска
     results_with_score = await plant_utils.vector_search_with_score(query, top_k=50, openai_client=client)
-    
+
     processed_results = []
     for plant_data, score in results_with_score:
         item = plant_data.copy()  # Копируем все поля
         item["relevance_score"] = score
         processed_results.append(item)
-        
+
     # Результаты поиска по имени
     name_search_results = plant_utils.search_plants_by_name(query)
     for plant_data_from_name_search in name_search_results:
         name = plant_data_from_name_search.get("Название")
-        
+
         # Проверяем, есть ли растение с таким же "Название" уже в результатах
         is_duplicate = any(
-            existing_item.get("Название") == name 
+            existing_item.get("Название") == name
             for existing_item in processed_results
         )
-        
+
         if not is_duplicate:
             item = plant_data_from_name_search.copy()  # Копируем все поля
             item["relevance_score"] = 1.0  # Прямые совпадения по имени получают высокий балл
             processed_results.append(item)
-            
-    return json.dumps({"results": processed_results, "total_count": len(processed_results), "query": query}, ensure_ascii=False)
+
+    return json.dumps({"results": processed_results, "total_count": len(processed_results), "query": query},
+                      ensure_ascii=False)
+
 
 @function_tool
-async def order(ctx: RunContextWrapper[ChatContext], plant: str, quantity: int, customer_info: str | None = None) -> str:
+async def order(ctx: RunContextWrapper[ChatContext], plant: str, quantity: int,
+                customer_info: str | None = None) -> str:
     """Оповещает менеджера о заказе."""
     details = f"Заказ: {plant}\nКоличество: {quantity}"
     if customer_info:
         details += f"\nКонтактная информация: {customer_info}"
     result = await telegrambot.notify_seller(details, is_preorder=False, context=ctx.context)
-    
+
     # Ищем растение в базе данных по названию для проверки технического горшка
     plant_data = plant_utils.search_plants_by_name(plant)
     if plant_data:
         await check_and_send_pot_suggestion(ctx.context.chat_id, plant_data)
-    
+
     # После успешного заказа переходим к предложению аксессуаров
     ctx.context.change_state(DialogState.UPSELL)
-    
+
     return json.dumps(result, ensure_ascii=False)
 
+
 @function_tool
-async def preorder(ctx: RunContextWrapper[ChatContext], plant: str, quantity: int, customer_info: str | None = None) -> str:
+async def preorder(ctx: RunContextWrapper[ChatContext], plant: str, quantity: int,
+                   customer_info: str | None = None) -> str:
     """Оповещает менеджера о предзаказе."""
     details = f"ПРЕДЗАКАЗ: {plant}\nКоличество: {quantity}"
     if customer_info:
         details += f"\nКонтактная информация: {customer_info}"
     result = await telegrambot.notify_seller(details, is_preorder=True, context=ctx.context)
-    
+
     # Ищем растение в базе данных по названию для проверки технического горшка
     plant_data = plant_utils.search_plants_by_name(plant)
     if plant_data:
         await check_and_send_pot_suggestion(ctx.context.chat_id, plant_data)
-    
+
     # После успешного предзаказа переходим к предложению аксессуаров
     ctx.context.change_state(DialogState.UPSELL)
-    
+
     return json.dumps(result, ensure_ascii=False)
+
 
 @function_tool
 async def suggest_accessories(ctx: RunContextWrapper[ChatContext]) -> str:
     """Предлагает дополнительные товары после покупки растения."""
     accessories = {
         "Лейки и опрыскиватели": "https://tropichouse.ru/catalog/aksessuary/leyki_i_opryskivateli/",
-        "Удобрения": "https://tropichouse.ru/catalog/udobreniya/udobreniya_1/", 
+        "Удобрения": "https://tropichouse.ru/catalog/udobreniya/udobreniya_1/",
         "Фитолампы": "https://tropichouse.ru/catalog/aksessuary/fitolampy/",
         "Приборы для ухода": "https://tropichouse.ru/catalog/aksessuary/pribory_dlya_rasteniy/"
     }
-    
+
     # Переводим в состояние UPSELL
     ctx.context.change_state(DialogState.UPSELL)
-    
+
     return json.dumps({"accessories": accessories}, ensure_ascii=False)
+
 
 @function_tool
 async def add_to_cart(ctx: RunContextWrapper[ChatContext], plant: str, quantity: int, order_type: str = "order") -> str:
     """Добавляет растение в корзину для последующего оформления заказа."""
     # Ищем растение в базе данных по названию
     plant_data = plant_utils.search_plants_by_name(plant)
-    
+
     if not plant_data:
         return "Растение не найдено в каталоге"
-    
+
     # Берем первое растение из результатов поиска
     selected_plant = plant_data[0] if isinstance(plant_data, list) else plant_data
-    
+
     # Добавляем в корзину
     ctx.context.add_to_cart(selected_plant, quantity, order_type)
-    
+
     # Переходим в состояние управления корзиной
     ctx.context.change_state(DialogState.CART_MANAGEMENT)
-    
+
     plant_name = selected_plant.get("Название", plant)
     return f"✅ Растение '{plant_name}' добавлено в корзину (количество: {quantity})"
 
-@function_tool 
+
+@function_tool
 async def show_cart(ctx: RunContextWrapper[ChatContext]) -> str:
     """Показывает содержимое корзины."""
     cart_summary = ctx.context.get_cart_summary()
-    
+
     if ctx.context.cart:
         # Переводим в состояние управления корзиной
         ctx.context.change_state(DialogState.CART_MANAGEMENT)
@@ -408,59 +396,61 @@ async def show_cart(ctx: RunContextWrapper[ChatContext]) -> str:
     else:
         return cart_summary
 
+
 @function_tool
 async def checkout_cart(ctx: RunContextWrapper[ChatContext], customer_info: str | None = None) -> str:
     """Оформляет заказ всех растений из корзины."""
     if not ctx.context.cart:
         return "Корзина пуста, нечего заказывать"
-    
+
     # Формируем детали заказа
     orders = []
     preorders = []
-    
+
     for item in ctx.context.cart:
         plant_name = item["plant"].get("Название", "Неизвестное растение")
         quantity = item["quantity"]
-        
+
         if item["type"] == "preorder":
             preorders.append(f"{plant_name} - {quantity} шт.")
         else:
             orders.append(f"{plant_name} - {quantity} шт.")
-    
+
     # Формируем сообщения для менеджера
     results = []
-    
+
     if orders:
         order_details = "ЗАКАЗ:\n" + "\n".join(orders)
         if customer_info:
             order_details += f"\n\nКонтактная информация: {customer_info}"
-        
+
         result = await telegrambot.notify_seller(order_details, is_preorder=False, context=ctx.context)
         results.append(result)
-        
+
         # Проверяем растения в технических горшках
         cart_plants = [item["plant"] for item in ctx.context.cart if item["type"] == "order"]
         if cart_plants:
             await check_and_send_pot_suggestion(ctx.context.chat_id, cart_plants)
-    
+
     if preorders:
         preorder_details = "ПРЕДЗАКАЗ:\n" + "\n".join(preorders)
         if customer_info:
             preorder_details += f"\n\nКонтактная информация: {customer_info}"
-        
+
         result = await telegrambot.notify_seller(preorder_details, is_preorder=True, context=ctx.context)
         results.append(result)
-        
+
         # Проверяем растения в технических горшках
         cart_plants = [item["plant"] for item in ctx.context.cart if item["type"] == "preorder"]
         if cart_plants:
             await check_and_send_pot_suggestion(ctx.context.chat_id, cart_plants)
-    
+
     # Очищаем корзину и переходим к предложению аксессуаров
     ctx.context.clear_cart()
     ctx.context.change_state(DialogState.UPSELL)
-    
+
     return json.dumps({"success": True, "message": "Заказ оформлен"}, ensure_ascii=False)
+
 
 @function_tool
 async def remove_from_cart(ctx: RunContextWrapper[ChatContext], plant_name: str) -> str:
@@ -471,17 +461,18 @@ async def remove_from_cart(ctx: RunContextWrapper[ChatContext], plant_name: str)
         if plant_name.lower() in item["plant"].get("Название", "").lower():
             plant_found = True
             break
-    
+
     if not plant_found:
         return f"Растение '{plant_name}' не найдено в корзине"
-    
+
     # Удаляем растение
     ctx.context.remove_from_cart(plant_name)
-    
+
     # Остаемся в состоянии управления корзиной
     ctx.context.change_state(DialogState.CART_MANAGEMENT)
-    
+
     return f"✅ Растение '{plant_name}' удалено из корзины"
+
 
 agent = Agent[ChatContext](
     name="TropicHouseAgent",
@@ -491,16 +482,17 @@ agent = Agent[ChatContext](
     model_settings=ModelSettings(tool_choice="auto"),
 )
 
+
 async def extract_pot_size(text: str) -> int | None:
     """Извлекает размер кашпо из запроса пользователя."""
     # Сначала пытаемся найти размер прямо в тексте
     patterns = [
-        r'(\d+)\s*см',      # "20 см", "15см"
-        r'd(\d+)',          # "d15", "d20"
-        r'диаметр\s*(\d+)', # "диаметр 20"
+        r'(\d+)\s*см',  # "20 см", "15см"
+        r'd(\d+)',  # "d15", "d20"
+        r'диаметр\s*(\d+)',  # "диаметр 20"
         r'размер\s*(\d+)',  # "размер 15"
     ]
-    
+
     for pattern in patterns:
         match = re.search(pattern, text.lower())
         if match:
@@ -508,8 +500,9 @@ async def extract_pot_size(text: str) -> int | None:
             # Проверяем, что размер в разумных пределах для кашпо (10-70 см)
             if 10 <= size <= 70:
                 return size
-    
+
     return None
+
 
 async def extract_plant_quantity(text: str) -> int:
     """Определяет количество растений в запросе пользователя."""
@@ -535,66 +528,59 @@ async def extract_plant_quantity(text: str) -> int:
     except:
         return 1  # По умолчанию возвращаем 1
 
+
 async def is_working_hours_and_managers_available(category: str) -> tuple[bool, bool]:
     """Проверяет рабочее время и доступность менеджеров
-    
+
     Returns:
         tuple: (is_working_hours, has_online_managers)
     """
     now = datetime.now()
     current_hour = now.hour
-    
+
     # Рабочие часы: до 19:00
     is_working_hours = current_hour < 19
-    
+
     # Проверяем доступность менеджеров только если требуется их вызов
     has_online_managers = False
-    if category in ["office_plant", "multiple_plants", "live_photo", "ask_human", "reclamation", "order_question", "call_request"]:
+    if category in ["office_plant", "multiple_plants", "live_photo", "ask_human", "reclamation", "order_question",
+                    "call_request"]:
         # Определяем тип заказа для выбора группы менеджеров
         is_b2b = category == "office_plant"
         manager_group = config.MANAGER_B2B if is_b2b else config.MANAGER_B2C
-        
+
         try:
             online_managers = telegrambot.get_online_managers(manager_group["id"])
             has_online_managers = len(online_managers) > 0
         except Exception as e:
             logger.error(f"[is_working_hours_and_managers_available] Ошибка проверки менеджеров: {e}")
             has_online_managers = False
-    
+
     return is_working_hours, has_online_managers
 
+
 async def run_unified_agent(context: ChatContext, user_message: str, openai_client=None) -> str:
-    """
-        Main function to run the bot agent.
-        """
-    # ... (код получения intent) ...
-    intent = await classify_intent(text=text, context=context)
-
-    # Если интент "review_ignore", не отвечаем
-    if intent == "review_ignore":
-        return ""
-
     """Обёртка над Agents SDK Runner с сохранением истории сообщений."""
     # Сохраняем сообщение пользователя в контекст
     context.add_message(role="user", text=user_message)
-    
+
     # Проверяем, не был ли уже вызван менеджер ранее
     # Пропускаем проверку для команды /start
     if context.state == DialogState.MANAGER_CALLED and not user_message.strip().lower() in ["/start"]:
         # Если менеджер уже был вызван, не отвечаем на сообщения клиента
         logger.info(f"[run_unified_agent] Менеджер уже вызван для chat {context.chat_id}, бот не отвечает на сообщения")
         return ""
-    
+
     # Проверяем категории, требующие уведомления менеджера
     category = await classify_intent(context, user_message)
-    
+
     # Специальная логика для office_plant: вызываем менеджера только при количестве > 1
     if category == "office_plant":
         quantity = await extract_plant_quantity(user_message)
         if quantity <= 1:
             # Для одного растения не вызываем менеджера, обрабатываем обычным агентом
             category = "none"
-    
+
     # Специальная обработка для запросов про кашпо - отвечаем ссылкой
     if category == "pot_request":
         pot_size = await extract_pot_size(user_message)
@@ -605,10 +591,10 @@ async def run_unified_agent(context: ChatContext, user_message: str, openai_clie
         else:
             # Если размер не указан, показываем общий каталог кашпо
             response = "🪴 Вот наш каталог кашпо и горшков:\nhttps://tropichouse.ru/catalog/gorshki_i_kashpo/"
-        
+
         context.add_message(role="assistant", text=response)
         return response
-    
+
     if category != "none":
         # Специальная обработка для вопросов по заказу и просьб позвонить - переводим в MANAGER_CALLED без отправки ответа
         if category in ["order_question", "call_request"]:
@@ -618,22 +604,22 @@ async def run_unified_agent(context: ChatContext, user_message: str, openai_clie
             # Переводим в состояние MANAGER_CALLED без отправки ответа пользователю
             context.change_state(DialogState.MANAGER_CALLED)
             return ""
-        
+
         # Проверяем рабочее время и доступность менеджеров
         is_working_hours, has_online_managers = await is_working_hours_and_managers_available(category)
-        
+
         # Если нерабочее время и нет менеджеров онлайн
         if not is_working_hours and not has_online_managers:
             after_hours_message = "Запрос принят, свяжемся с Вами в рабочее время ⏰"
             context.add_message(role="assistant", text=after_hours_message)
-            
+
             # Сохраняем запрос для обработки в рабочее время
             details = f"{DETAILS_PREFIX[category]}: {user_message}"
             context.subject = DETAILS_PREFIX[category]
             await telegrambot.notify_seller(details, is_preorder=False, context=context)
-            
+
             return after_hours_message
-        
+
         # Обычная логика для рабочего времени или при наличии онлайн менеджеров
         details = f"{DETAILS_PREFIX[category]}: {user_message}"
         # Добавляем тему в контекст для передачи в notify_seller
@@ -647,12 +633,12 @@ async def run_unified_agent(context: ChatContext, user_message: str, openai_clie
         # Устанавливаем новое состояние: менеджер вызван
         context.change_state(DialogState.MANAGER_CALLED)
         return reply
-        
+
     # Запускаем агента
     history = context.get_last_n_messages(20)
-    messages = [{"role":"system", "content": _make_instructions(context, agent)}] + history
+    messages = [{"role": "system", "content": _make_instructions(context, agent)}] + history
     result = await Runner.run(agent, messages, context=context)
-    
+
     # Проверяем, перешли ли мы в состояние UPSELL после выполнения агента
     if context.state == DialogState.UPSELL:
         # Импортируем функцию отправки аксессуаров
@@ -660,16 +646,17 @@ async def run_unified_agent(context: ChatContext, user_message: str, openai_clie
         # Переводим в завершенное состояние
         context.change_state(DialogState.COMPLETED)
         return ""  # Не возвращаем дополнительный текст, так как уже отправили аксессуары
-    
+
     # Сохраняем ответ ассистента в контекст
     if result.final_output is not None:
         context.add_message(role="assistant", text=result.final_output)
     return result.final_output
 
+
 async def send_accessories_message(chat_id: str):
     """Отправляет сообщение с дополнительными товарами после покупки"""
     from main import send_message
-    
+
     message = """🌿 Отлично! Ваш заказ оформлен! 
 
 А чтобы ваше растение чувствовало себя максимально комфортно, предлагаю полезные аксессуары:
@@ -687,5 +674,5 @@ https://tropichouse.ru/catalog/aksessuary/fitolampy/
 https://tropichouse.ru/catalog/aksessuary/pribory_dlya_rasteniy/
 
 Нужна консультация по аксессуарам? Обращайтесь! 😊"""
-    
+
     await send_message(chat_id, message)

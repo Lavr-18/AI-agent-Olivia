@@ -75,21 +75,22 @@ N. {название растения}
 
 logger = logging.getLogger(__name__)
 
+
 # --------------------------- #
 #        Состояния диалога   #
 # --------------------------- #
 
 class DialogState(Enum):
-    START = "start"           # Начало диалога
-    ASK_SIZE = "ask_size"     # Уточнение размера растения
-    ASK_LOCATION = "ask_location" # Уточнение места размещения
-    PLANT_SEARCH = "search"   # Поиск и выбор растений
+    START = "start"  # Начало диалога
+    ASK_SIZE = "ask_size"  # Уточнение размера растения
+    ASK_LOCATION = "ask_location"  # Уточнение места размещения
+    PLANT_SEARCH = "search"  # Поиск и выбор растений
     OUT_OF_STOCK = "outofstock"  # Растение не в наличии, но можно заказать
-    ORDERING = "order"        # Процесс оформления заказа
+    ORDERING = "order"  # Процесс оформления заказа
     CART_MANAGEMENT = "cart"  # Управление корзиной
-    CART_CHECKOUT = "checkout" # Оформление всего заказа из корзины
-    UPSELL = "upsell"         # Предложение дополнительных товаров
-    COMPLETED = "completed"   # Диалог завершён
+    CART_CHECKOUT = "checkout"  # Оформление всего заказа из корзины
+    UPSELL = "upsell"  # Предложение дополнительных товаров
+    COMPLETED = "completed"  # Диалог завершён
     MANAGER_CALLED = "manager_called"  # Менеджер был вызван, бот не отвечает на сообщения
 
 
@@ -102,32 +103,33 @@ class ChatContext:
     Хранит всю необходимую информацию о ходе диалога: последние сообщения,
     текущее состояние, данные выбранных растений, детали заказа и т.д.
     """
+
     def __init__(self, chat_id: str):
         self.chat_id = chat_id
         self.dialog_id: Optional[str] = None
         self.created_at = datetime.now()  # Время создания контекста
-        self.messages = []                # история (список словарей {"role": ..., "content": ...})
+        self.messages = []  # история (список словарей {"role": ..., "content": ...})
         self.state = DialogState.START
-        self.desired_size: Optional[str] = None      # 'floor', 'tabletop', 'any'
+        self.desired_size: Optional[str] = None  # 'floor', 'tabletop', 'any'
         self.desired_location: Optional[str] = None  # 'home', 'office', 'gift', 'any'
-        self.selected_plants = None       # Сюда можно складывать выбранные позиции (при необходимости)
-        self.cart = []                    # Корзина: [{"plant": plant_data, "quantity": int, "type": "order"/"preorder"}, ...]
-        self.order_details = None         # Сюда можно складывать детали заказа
-        self.potential_groups = None      # Сюда можно складывать сгруппированные результаты (если их >5 и т.п.)
-        self.channel_info = None          # Информация о канале (name, id)
-        self.user_info = None             # Информация о пользователе (name, id)
-        self.out_of_stock_plant = None    # Растение, которого нет в наличии, но пользователь интересуется
-        self.out_of_stock_plants = None   # Список растений без остатка, если нашлось несколько
-        self.preorder_info = None         # Информация о предзаказе (сроки доставки, комментарии и т.д.)
-        self.last_search_query = None     # Последний поисковый запрос для сохранения контекста
-
+        self.selected_plants = None  # Сюда можно складывать выбранные позиции (при необходимости)
+        self.cart = []  # Корзина: [{"plant": plant_data, "quantity": int, "type": "order"/"preorder"}, ...]
+        self.order_details = None  # Сюда можно складывать детали заказа
+        self.potential_groups = None  # Сюда можно складывать сгруппированные результаты (если их >5 и т.п.)
+        self.channel_info = None  # Информация о канале (name, id)
+        self.user_info = None  # Информация о пользователе (name, id)
+        self.out_of_stock_plant = None  # Растение, которого нет в наличии, но пользователь интересуется
+        self.out_of_stock_plants = None  # Список растений без остатка, если нашлось несколько
+        self.preorder_info = None  # Информация о предзаказе (сроки доставки, комментарии и т.д.)
+        self.last_search_query = None  # Последний поисковый запрос для сохранения контекста
 
     def is_expired(self, days: int = 7) -> bool:
         """Проверяет, истек ли срок действия контекста (по умолчанию 7 дней)."""
         expiry_date = self.created_at + timedelta(days=days)
         return datetime.now() > expiry_date
 
-    def add_message(self, role: str, text: Optional[str], tool_calls: Optional[List[Dict]] = None, tool_call_id: Optional[str] = None, name: Optional[str] = None):
+    def add_message(self, role: str, text: Optional[str], tool_calls: Optional[List[Dict]] = None,
+                    tool_call_id: Optional[str] = None, name: Optional[str] = None):
         """Добавляет сообщение в историю диалога, поддерживая формат OpenAI.
 
         Args:
@@ -147,7 +149,7 @@ class ChatContext:
             message["tool_call_id"] = tool_call_id
             # У tool-сообщений в content обычно результат вызова (уже должен быть в text)
         if name:
-            message["name"] = name # Для tool-сообщений
+            message["name"] = name  # Для tool-сообщений
 
         # Проверка для role="tool": если text=None, ставим content=""
         if role == "tool" and text is None:
@@ -155,11 +157,11 @@ class ChatContext:
         # Удаляем ключи с None значениями, кроме content у assistant при tool_calls
         # и content у tool (если мы его только что установили в "")
         elif message["content"] is None and role != "assistant":
-             del message["content"]
+            del message["content"]
 
         self.messages.append(message)
 
-    def get_last_n_messages(self, n: int = 5) -> List[Dict[str, Any]]: # Возвращаемый тип Any из-за tool_calls
+    def get_last_n_messages(self, n: int = 5) -> List[Dict[str, Any]]:  # Возвращаемый тип Any из-за tool_calls
         """
         Возвращает последние n сообщений в истории.
         """
@@ -196,7 +198,9 @@ class ChatContext:
             self.clear_cart()
 
         # Если переходим к новому поиску или начинаем сначала, сбрасываем предпочтения
-        if new_state in [DialogState.START, DialogState.PLANT_SEARCH] and self.state not in [DialogState.START, DialogState.PLANT_SEARCH, DialogState.CART_MANAGEMENT]:
+        if new_state in [DialogState.START, DialogState.PLANT_SEARCH] and self.state not in [DialogState.START,
+                                                                                             DialogState.PLANT_SEARCH,
+                                                                                             DialogState.CART_MANAGEMENT]:
             self.reset_preferences()
             # НЕ очищаем корзину при переходе к поиску, позволяем накапливать растения
 
@@ -212,8 +216,8 @@ class ChatContext:
         self.order_details = None
         self.potential_groups = None
         self.reset_out_of_stock_state()
-        self.reset_preferences() # Сбрасываем предпочтения
-        self.last_search_query = None     # Сбрасываем последний поисковый запрос
+        self.reset_preferences()  # Сбрасываем предпочтения
+        self.last_search_query = None  # Сбрасываем последний поисковый запрос
         logger.info(f"Chat {self.chat_id}: Dialog reset")
 
     def set_out_of_stock_info(self, plant_data: Dict[str, Any], plants_list: Optional[List[Dict[str, Any]]] = None):
@@ -229,7 +233,7 @@ class ChatContext:
             if item["plant"].get("Название") == plant_data.get("Название"):
                 item["quantity"] += quantity
                 return
-        
+
         # Если растения нет в корзине, добавляем новый элемент
         self.cart.append({
             "plant": plant_data,
@@ -245,18 +249,18 @@ class ChatContext:
         """Возвращает краткое описание содержимого корзины."""
         if not self.cart:
             return "Корзина пуста"
-        
+
         total_items = sum(item["quantity"] for item in self.cart)
         items_text = []
-        
+
         for item in self.cart:
             plant_name = item["plant"].get("Название", "Неизвестное растение")
             quantity = item["quantity"]
             order_type = " (предзаказ)" if item["type"] == "preorder" else ""
             items_text.append(f"• {plant_name} - {quantity} шт.{order_type}")
-        
+
         return f"🛒 В корзине ({total_items} растений):\n" + "\n".join(items_text)
 
     def clear_cart(self):
         """Очищает корзину."""
-        self.cart = [] 
+        self.cart = []
