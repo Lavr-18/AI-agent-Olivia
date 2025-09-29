@@ -121,10 +121,10 @@ async def async_post(url, **kwargs):
 #  Основные функции обработки сообщений
 # --------------------------------------- #
 
-async def handle_client_message(chat_id: str, message_text: str):
+async def handle_client_message(chat_id: str, message_text: str, message_data: dict):
     """
     Вызывается при получении нового текстового сообщения от клиента.
-    Создаёт (или берёт существующий) ChatContext и передаёт сообщение в LLM-агента.
+    Теперь принимает message_data и передает его агенту.
     """
     logger.info(f"[handle_client_message] chat {chat_id}, text: {message_text[:50] if message_text else 'None'}")
 
@@ -155,13 +155,15 @@ async def handle_client_message(chat_id: str, message_text: str):
 
     # Передаём сообщение в наш новый единый агент
     try:
-        # run_unified_agent теперь сам обрабатывает диалог и возвращает готовый текст ответа
-        bot_reply = await run_unified_agent(context, message_text, openai_client)
+        # ИЗМЕНЕНИЕ: Добавляем message_data в вызов run_unified_agent
+        bot_reply = await run_unified_agent(context, message_text, message_data, openai_client)
 
         # Проверяем, что bot_reply не None перед отправкой
         if bot_reply is None:
             logger.error(f"[handle_client_message] bot_reply=None для chat {chat_id}")
-            bot_reply = "Извините, произошла техническая ошибка. Пожалуйста, повторите запрос."
+            # Если бот должен молчать (из-за логики игнорирования), он возвращает пустую строку "" или None,
+            # но мы не отправляем сообщение, если вернулся None.
+            return # Просто завершаем работу, если ответ пуст.
 
         # Отправляем готовый ответ клиенту
         await send_message(chat_id, bot_reply)
@@ -170,11 +172,10 @@ async def handle_client_message(chat_id: str, message_text: str):
         await send_message(chat_id,
                            "Извините, произошла ошибка при обработке вашего запроса. Пожалуйста, повторите или введите /start для перезапуска диалога.")
 
-
-async def handle_client_image(chat_id: str, image_url: str):
+async def handle_client_image(chat_id: str, image_url: str, message_data: dict):
     """
     Обрабатывает фотографию от клиента.
-    Анализирует изображение и передает результат агенту.
+    Теперь принимает message_data и передает его агенту.
     """
     # Получаем или создаем контекст для чата
     if chat_id not in chat_contexts:
@@ -243,11 +244,12 @@ async def handle_client_image(chat_id: str, image_url: str):
 
         # Передаём внутреннее сообщение в единый агент
         try:
-            bot_reply = await run_unified_agent(context, internal_message, openai_client)
+            # ИЗМЕНЕНИЕ: Добавляем message_data в вызов run_unified_agent
+            bot_reply = await run_unified_agent(context, internal_message, message_data, openai_client)
 
             if bot_reply is None:
                 logger.error(f"[handle_client_image] bot_reply=None после обработки фото для chat {chat_id}")
-                bot_reply = "Извините, произошла техническая ошибка после анализа фото. Пожалуйста, повторите запрос."
+                return # Просто завершаем работу, если ответ пуст.
 
             await send_message(chat_id, bot_reply)
         except Exception as agent_e:
@@ -488,7 +490,8 @@ def dialog_assigned(dialog_id: int) -> bool:
 def on_message(ws, message):
     """
     Вызывается при входящем сообщении по WebSocket.
-    Парсим JSON, ищем текст/фото от клиента и кладём в очередь message_queue.
+    Теперь обрабатывает сообщения от клиента, других ботов и системы,
+    передавая полную информацию через message_queue.
     """
     global main_event_loop
     try:
@@ -506,7 +509,6 @@ def on_message(ws, message):
             channel_name = (channel_info.get("name") or "").lower()
 
             # Проверка, что сообщение пришло из нужного канала
-            # (опционально, если нужно фильтровать)
             try:
                 is_target_channel = (int(channel_id) == 18 or int(channel_id) == 13) if channel_id else False
             except (ValueError, TypeError):
@@ -521,12 +523,12 @@ def on_message(ws, message):
             incoming_type = message_data.get("type")
             content = message_data.get("content", {})
 
-            # Обрабатываем только сообщения от клиента
-            if sender_type == "customer":
-                # Проверяем, не назначен ли диалог уже менеджеру
-                if dialog_assigned(dialog_id):
+            # ИЗМЕНЕНИЕ: Обрабатываем сообщения от клиента ИЛИ от ботов/системы.
+            if sender_type in ["customer", "bot", "system"]:
+
+                # Логика MANAGER_CALLED остается ТОЛЬКО для клиента, если диалог назначен
+                if sender_type == "customer" and dialog_assigned(dialog_id):
                     logger.info(f"[on_message] Диалог {chat_id} уже назначен менеджеру, переводим в MANAGER_CALLED")
-                    # Создаем или обновляем контекст чата
                     if chat_id not in chat_contexts:
                         chat_contexts[chat_id] = ChatContext(chat_id)
 
@@ -535,33 +537,36 @@ def on_message(ws, message):
                     context.change_state(DialogState.MANAGER_CALLED)
                     return
 
-                # Создаем или обновляем контекст чата
+                    # Создаем или обновляем контекст чата
                 if chat_id not in chat_contexts:
                     chat_contexts[chat_id] = ChatContext(chat_id)
 
                 context = chat_contexts[chat_id]
-                context.dialog_id = dialog_id  # Устанавливаем dialog_id в контексте
+                context.dialog_id = dialog_id
 
-                # Сохраняем информацию о канале
-                context.channel_info = {
-                    "id": channel_id,
-                    "name": channel_name
-                }
+                # Сохраняем информацию о канале и пользователе ТОЛЬКО для клиента
+                if sender_type == "customer":
+                    context.channel_info = {
+                        "id": channel_id,
+                        "name": channel_name
+                    }
+                    context.user_info = {
+                        "id": from_data.get("id"),
+                        "name": from_data.get("name", "Неизвестный пользователь")
+                    }
 
-                # Сохраняем информацию о пользователе
-                context.user_info = {
-                    "id": from_data.get("id"),
-                    "name": from_data.get("name", "Неизвестный пользователь")
-                }
-
+                # ИСПРАВЛЕНИЕ: Добавляем message_type, content и message_data в очередь
                 if incoming_type == "text":
-                    message_text = content.get("text") if isinstance(content, dict) else str(
+                    message_content = content.get("text") if isinstance(content, dict) else str(
                         content) if content else None
-                    if message_text and message_text.strip():
-                        logger.info(f"[on_message] Текст от клиента: {message_text}")
+                    if message_content and message_content.strip():
+                        logger.info(f"[on_message] Текст от отправителя '{sender_type}': {message_content}")
                         if main_event_loop:
-                            asyncio.run_coroutine_threadsafe(message_queue.put((chat_id, message_text)),
-                                                             main_event_loop)
+                            # message_queue.put: (chat_id, type, content, message_data)
+                            asyncio.run_coroutine_threadsafe(
+                                message_queue.put((chat_id, "text", message_content, message_data)),
+                                main_event_loop
+                            )
                     else:
                         logger.warning(f"[on_message] Получено пустое текстовое сообщение для chat {chat_id}")
                 elif incoming_type == "image":
@@ -571,24 +576,27 @@ def on_message(ws, message):
                         if isinstance(first_item, dict) and first_item.get("kind") == "image":
                             img_url = first_item.get("preview_url")
                             if img_url and main_event_loop:
-                                logger.info(f"[on_message] Изображение от клиента: {img_url}")
-                                asyncio.run_coroutine_threadsafe(message_queue.put((chat_id, None, img_url)),
-                                                                 main_event_loop)
+                                logger.info(f"[on_message] Изображение от отправителя '{sender_type}': {img_url}")
+                                # message_queue.put: (chat_id, type, content, message_data)
+                                asyncio.run_coroutine_threadsafe(
+                                    message_queue.put((chat_id, "image", img_url, message_data)),
+                                    main_event_loop
+                                )
+
+            # Логика для менеджеров остается без изменений
             elif sender_type in ["manager", "user"]:
-                # Сообщения от менеджеров - переводим диалог в режим MANAGER_CALLED
                 logger.info(f"[on_message] Сообщение от менеджера ({sender_type}), переводим в режим MANAGER_CALLED")
 
-                # Создаем или обновляем контекст чата
                 if chat_id not in chat_contexts:
                     chat_contexts[chat_id] = ChatContext(chat_id)
 
                 context = chat_contexts[chat_id]
                 context.dialog_id = dialog_id
 
-                # Переводим в состояние MANAGER_CALLED
                 context.change_state(DialogState.MANAGER_CALLED)
+
+            # Неидентифицированные типы отправителей игнорируем
             else:
-                # Неизвестный тип отправителя - логируем и игнорируем
                 logger.warning(
                     f"[on_message] Неизвестный тип отправителя: {sender_type}, игнорируем сообщение для chat {chat_id}")
 
@@ -691,7 +699,7 @@ def check_connection_status(ws):
 async def process_user_messages(chat_id: str):
     """
     Обрабатывает сообщения пользователя после задержки.
-    Объединяет все сообщения, полученные в течение MESSAGE_DELAY секунд.
+    Теперь корректно распаковывает message_data и передает его дальше.
     """
     try:
         # Ждем указанное время
@@ -699,6 +707,7 @@ async def process_user_messages(chat_id: str):
         await asyncio.sleep(MESSAGE_DELAY)
 
         # Получаем все сообщения пользователя
+        # messages: список кортежей (message_type, content, message_data)
         messages = user_messages.get(chat_id, [])
         if not messages:
             logger.info(f"[process_user_messages] Нет сообщений для chat_id {chat_id}")
@@ -709,27 +718,41 @@ async def process_user_messages(chat_id: str):
         # Очищаем сообщения пользователя
         user_messages[chat_id] = []
 
-        # Разделяем сообщения на текстовые и изображения
+        # Разделяем сообщения на текстовые и изображения, сохраняя message_data
         text_messages = []
-        image_messages = []
+        last_text_message_data = None
+        image_messages_to_process = []  # Храним (image_url, message_data)
 
-        for text, image_url in messages:
-            if image_url:
-                image_messages.append(image_url)
-            elif text:
-                text_messages.append(text)
+        # ИЗМЕНЕНИЕ: Корректная распаковка 3-элементного кортежа
+        for item in messages:
+            if len(item) == 3:
+                message_type, content, message_data = item
 
-        # Обрабатываем изображения
-        for image_url in image_messages:
+                if message_type == "image":
+                    # Обрабатываем изображения по одному, сохраняя их message_data
+                    image_messages_to_process.append((content, message_data))
+                elif message_type == "text":
+                    # Текстовые сообщения агрегируем, сохраняя данные последнего сообщения
+                    text_messages.append(content)
+                    last_text_message_data = message_data
+            else:
+                logger.warning(f"[process_user_messages] Пропущен некорректный элемент из user_messages: {item}")
+
+        # Обрабатываем изображения (по одному)
+        for image_url, image_message_data in image_messages_to_process:
             logger.info(f"[process_user_messages] Обработка изображения для chat_id {chat_id}: {image_url}")
-            await handle_client_image(chat_id, image_url)
+            # ИЗМЕНЕНИЕ: Передаем image_message_data
+            await handle_client_image(chat_id, image_url, image_message_data)
 
-        # Объединяем текстовые сообщения и обрабатываем их
+            # Объединяем текстовые сообщения и обрабатываем их
         if text_messages:
             combined_text = "\n".join(text_messages)
             logger.info(
                 f"[process_user_messages] Обработка {len(text_messages)} текстовых сообщений для chat_id {chat_id}")
-            await handle_client_message(chat_id, combined_text)
+
+            # ИЗМЕНЕНИЕ: Передаем combined_text и message_data последнего сообщения
+            if last_text_message_data:  # Проверка, что были текстовые сообщения
+                await handle_client_message(chat_id, combined_text, last_text_message_data)
 
     except Exception as e:
         logger.error(f"[process_user_messages] Ошибка: {e}")
@@ -739,11 +762,11 @@ async def process_user_messages(chat_id: str):
             del user_timers[chat_id]
             logger.info(f"[process_user_messages] Таймер удален для chat_id {chat_id}")
 
-
 async def process_messages():
     """
     Берём задания из очереди message_queue и добавляем их в список сообщений пользователя.
     Запускает таймер для обработки сообщений через MESSAGE_DELAY секунд.
+    Теперь сохраняет полный message_data.
     """
     while True:
         item = await message_queue.get()
@@ -754,15 +777,18 @@ async def process_messages():
             if chat_id not in user_messages:
                 user_messages[chat_id] = []
 
-            # Добавляем сообщение в список
-            if len(item) == 2:
-                text = item[1]
-                user_messages[chat_id].append((text, None))
-                logger.info(f"[process_messages] Добавлено текстовое сообщение для chat_id {chat_id}: {text[:50]}")
-            elif len(item) == 3:
-                image_url = item[2]
-                user_messages[chat_id].append((None, image_url))
-                logger.info(f"[process_messages] Добавлено изображение для chat_id {chat_id}: {image_url}")
+            # ИЗМЕНЕНИЕ: Ожидаем 4 элемента: (chat_id, message_type, content, message_data)
+            if len(item) == 4:
+                message_type = item[1]
+                content = item[2]
+                message_data = item[3]  # <--- Сохраняем полный словарь данных
+
+                # Сохраняем в user_messages: (message_type, content, message_data)
+                user_messages[chat_id].append((message_type, content, message_data))
+                logger.info(
+                    f"[process_messages] Добавлено сообщение типа '{message_type}' от '{message_data.get('from', {}).get('type')}' для chat_id {chat_id}")
+            else:
+                logger.warning(f"[process_messages] Получен некорректный элемент из очереди: {item}")
 
             # Если у пользователя уже есть активный таймер, не создаем новый
             if chat_id not in user_timers:

@@ -123,6 +123,9 @@ class ChatContext:
         self.preorder_info = None  # Информация о предзаказе (сроки доставки, комментарии и т.д.)
         self.last_search_query = None  # Последний поисковый запрос для сохранения контекста
 
+        self.review_request_timestamp: Optional[datetime] = None  # Новый атрибут для хранения времени запроса отзыва
+
+
     def is_expired(self, days: int = 7) -> bool:
         """Проверяет, истек ли срок действия контекста (по умолчанию 7 дней)."""
         expiry_date = self.created_at + timedelta(days=days)

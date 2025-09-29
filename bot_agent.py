@@ -7,7 +7,15 @@ from chat_context import ChatContext, DialogState, PERSONA_DESCRIPTION, ADDRESS_
 from agents import Agent, Runner, function_tool, ModelSettings, RunContextWrapper
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta # <--- ИЗМЕНЕНИЕ: Добавлен timedelta
+from typing import Optional # <--- ДОБАВЛЕНО для type hinting
+
+# Константы для логики 24-часового окна
+REVIEW_WINDOW_HOURS = 24
+# ВНИМАНИЕ: Укажите точную подстроку, которую отправляет другой бот
+# при запросе отзыва, чтобы наш бот мог установить таймер.
+# Например: "Оцените нашу работу по пятибалльной шкале."
+REVIEW_REQUEST_TRIGGER = "оцените нашу работу"
 
 logger = logging.getLogger(__name__)
 
@@ -559,9 +567,53 @@ async def is_working_hours_and_managers_available(category: str) -> tuple[bool, 
     return is_working_hours, has_online_managers
 
 
-async def run_unified_agent(context: ChatContext, user_message: str, openai_client=None) -> str:
-    """Обёртка над Agents SDK Runner с сохранением истории сообщений."""
-    # Сохраняем сообщение пользователя в контекст
+async def run_unified_agent(context: ChatContext, user_message: str, message_data: dict, openai_client=None) -> Optional[str]:
+    """Обёртка над Agents SDK Runner с сохранением истории сообщений.
+    Теперь включает логику фильтрации сообщений от ботов и 24-часовой таймер."""
+
+    # ----------------------------------------------------------------
+    # 1. ЛОГИКА ФИЛЬТРАЦИИ И УСТАНОВКИ ТАЙМЕРА (НОВЫЙ БЛОК)
+    # ----------------------------------------------------------------
+    # REVIEW_WINDOW_HOURS и REVIEW_REQUEST_TRIGGER должны быть определены выше в файле
+
+    sender_type = message_data.get("from", {}).get("type")
+
+    # 1.1. Логика для ботов/системы (УСТАНОВКА ТАЙМЕРА)
+    if sender_type in ["bot", "system"]:
+        # Проверяем, является ли это сообщение триггером запроса отзыва
+        # Проверяем нижний регистр, чтобы быть менее чувствительными к регистру
+        if REVIEW_REQUEST_TRIGGER in user_message.lower():
+            # Устанавливаем таймер
+            context.review_request_timestamp = datetime.now()
+            logger.info(f"[run_unified_agent] Установлен таймер запроса отзыва для chat {context.chat_id}.")
+
+        # Игнорируем все сообщения от ботов и системы
+        logger.info(f"[run_unified_agent] Игнорируем сообщение от отправителя: {sender_type}")
+        return None  # Бот молчит
+
+    # 1.2. Логика для клиента (ПРОВЕРКА ТАЙМЕРА)
+    elif sender_type == "customer":
+        # Если таймер установлен И прошло меньше 24 часов
+        if (context.review_request_timestamp and
+                datetime.now() - context.review_request_timestamp < timedelta(hours=REVIEW_WINDOW_HOURS)):
+
+            # Игнорируем сообщение клиента в течение 24 часов
+            logger.info(
+                f"[run_unified_agent] Игнорируем сообщение клиента (chat {context.chat_id}) в пределах 24-часового окна отзыва.")
+            return None  # Бот молчит
+
+        # Если таймер установлен И прошло БОЛЕЕ 24 часов
+        elif context.review_request_timestamp and datetime.now() - context.review_request_timestamp >= timedelta(
+                hours=REVIEW_WINDOW_HOURS):
+            # Сбрасываем таймер
+            context.review_request_timestamp = None
+            logger.info(f"[run_unified_agent] Сброшен таймер 24h для chat {context.chat_id}.")
+
+    # ----------------------------------------------------------------
+    # 2. ОСНОВНАЯ ЛОГИКА АГЕНТА (СКОРРЕКТИРОВАННАЯ)
+    # ----------------------------------------------------------------
+
+    # Сохраняем сообщение пользователя в контекст (если оно не было отфильтровано)
     context.add_message(role="user", text=user_message)
 
     # Проверяем, не был ли уже вызван менеджер ранее
@@ -569,7 +621,7 @@ async def run_unified_agent(context: ChatContext, user_message: str, openai_clie
     if context.state == DialogState.MANAGER_CALLED and not user_message.strip().lower() in ["/start"]:
         # Если менеджер уже был вызван, не отвечаем на сообщения клиента
         logger.info(f"[run_unified_agent] Менеджер уже вызван для chat {context.chat_id}, бот не отвечает на сообщения")
-        return ""
+        return None  # <-- ИЗМЕНЕНО: return "" заменено на return None
 
     # Проверяем категории, требующие уведомления менеджера
     category = await classify_intent(context, user_message)
@@ -603,7 +655,7 @@ async def run_unified_agent(context: ChatContext, user_message: str, openai_clie
             await telegrambot.notify_seller(details, is_preorder=False, context=context)
             # Переводим в состояние MANAGER_CALLED без отправки ответа пользователю
             context.change_state(DialogState.MANAGER_CALLED)
-            return ""
+            return None  # <-- ИЗМЕНЕНО: return "" заменено на return None
 
         # Проверяем рабочее время и доступность менеджеров
         is_working_hours, has_online_managers = await is_working_hours_and_managers_available(category)
@@ -645,13 +697,12 @@ async def run_unified_agent(context: ChatContext, user_message: str, openai_clie
         await send_accessories_message(context.chat_id)
         # Переводим в завершенное состояние
         context.change_state(DialogState.COMPLETED)
-        return ""  # Не возвращаем дополнительный текст, так как уже отправили аксессуары
+        return None  # <-- ИЗМЕНЕНО: return "" заменено на return None
 
     # Сохраняем ответ ассистента в контекст
     if result.final_output is not None:
         context.add_message(role="assistant", text=result.final_output)
     return result.final_output
-
 
 async def send_accessories_message(chat_id: str):
     """Отправляет сообщение с дополнительными товарами после покупки"""
