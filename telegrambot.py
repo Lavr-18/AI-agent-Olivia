@@ -10,14 +10,14 @@ import time
 
 logger = logging.getLogger(__name__)
 
+# Инициализация бота использует config.BOT_TOKEN, который будет обновлен из config.py/env
 try:
     bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     logger.info("Телеграм-бот успешно инициализирован")
 except Exception as e:
     logger.error(f"Не удалось инициализировать Телеграм-бот: {e}")
 
-# ID чата продавца в Telegram
-SELLER_CHAT_ID = -1002540034535
+# УДАЛЕНО: SELLER_CHAT_ID = -1002540034535 (Теперь ID берутся из config)
 
 
 def api_request(method, endpoint, params=None, json_data=None, headers=None):
@@ -367,14 +367,15 @@ async def notify_seller(order_details: str, is_preorder: bool, context=None) -> 
         if target_dialog_id:
             message = message.replace("• ID чата:", f"• ID диалога: <code>{target_dialog_id}</code>\n• ID чата:")
 
-        # Отправляем сообщение
+        # Отправляем сообщение в супергруппу с указанием топика
         await bot.send_message(
-            chat_id=SELLER_CHAT_ID,
+            chat_id=int(config.TELEGRAM_CHAT_ID),
             text=message,
-            parse_mode="HTML"
+            parse_mode="HTML",
+            message_thread_id=int(config.TELEGRAM_TOPIC_ID)
         )
 
-        logger.info(f"[notify_seller] Уведомление успешно отправлено продавцу (chat_id: {SELLER_CHAT_ID})")
+        logger.info(f"[notify_seller] Уведомление успешно отправлено продавцу (chat_id: {config.TELEGRAM_CHAT_ID}, topic_id: {config.TELEGRAM_TOPIC_ID})")
 
         # Возвращаем подтверждение в зависимости от типа заказа
         if is_preorder:

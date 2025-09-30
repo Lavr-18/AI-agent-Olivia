@@ -4,7 +4,15 @@ from dotenv import load_dotenv
 # Загружаем переменные окружения из .env файла
 load_dotenv()
 
+# --- Конфигурация Telegram (НОВЫЕ ПЕРЕМЕННЫЕ) ---
+# ID чата (супергруппы) и ID темы (топика) для отправки уведомлений
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TELEGRAM_TOPIC_ID = os.getenv("TELEGRAM_TOPIC_ID")
+
+# Основной токен Telegram бота
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# --- Конфигурация API и CRM ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 RETAIL_CRM = os.getenv("RETAIL_CRM")
 MOY_SKLAD = os.getenv("MOY_SKLAD")
