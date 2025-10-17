@@ -510,11 +510,13 @@ def on_message(ws, message):
 
             # Проверка, что сообщение пришло из нужного канала
             try:
-                is_target_channel = (int(channel_id) == 18 or int(channel_id) == 13) if channel_id else False
+                # Включены каналы 18, 13 (старые) и 15 (Avito)
+                is_target_channel = (int(channel_id) in [18, 13, 15]) if channel_id else False
             except (ValueError, TypeError):
                 is_target_channel = False
 
             if not is_target_channel:
+                # Игнорируем все остальные каналы
                 logger.info(f"[on_message] Сообщение из другого канала ({channel_name}), игнорируем")
                 return
 
